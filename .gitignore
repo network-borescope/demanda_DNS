@@ -1,0 +1,6 @@
+*.txt
+*.csv
+!entrada_demo.txt
+!saida_demo.txt
+!open_dns_list.txt
+!dns_ips_name.txt
