@@ -1,4 +1,4 @@
-from sys import argv, exit
+from sys import argv, exit, maxsize
 
 arguments = argv[1:]
 
@@ -155,6 +155,19 @@ for line in fin:
 
 fin.close()
 
+ip_name = {}
+max_len_name = 0
+with open("req_src_name.txt", "r") as f:
+    for line in f:
+        line = line.strip()
+        ip, name = line.split(" ")
+
+        if len(name) > max_len_name: max_len_name = len(name)
+
+        ip_name[ip] = name
+
+        
+
 with open("dns_request.txt", "w") as f, open("dns_request.csv", "w") as csv_f:
     # ordena dicionario em ordem decrescente
     sorted_dns_ip_src = {key: val for key, val in sorted(dns_ip_src.items(), key = lambda item: item[1], reverse=True)}
@@ -165,8 +178,14 @@ with open("dns_request.txt", "w") as f, open("dns_request.csv", "w") as csv_f:
         padding_ip = " " * (15 - len(splited_key[0]))
         padding_dist = " " * (2 - len(splited_key[1]))
 
-        print(f"IP SRC: {splited_key[0]}{padding_ip}| DIST: {splited_key[1]}{padding_dist}| COUNT: {dns_ip_src[key]}", file=f)
-        print(f"{splited_key[0]};{splited_key[1]};{dns_ip_src[key]}", file=csv_f)
+        name = None
+        if splited_key[0] in ip_name: name = ip_name[splited_key[0]]
+        else: name = "NotOnList"
+
+        padding_name = " " * (max_len_name - len(name))
+
+        print(f"NAME: {name}{padding_name}| IP SRC: {splited_key[0]}{padding_ip}| DIST: {splited_key[1]}{padding_dist}| COUNT: {dns_ip_src[key]}", file=f)
+        print(f"{name};{splited_key[0]};{splited_key[1]};{dns_ip_src[key]}", file=csv_f)
 
 open_dns = {}
 with open("open_dns_list.txt", "r") as f:
