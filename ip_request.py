@@ -1,4 +1,5 @@
-from sys import argv, exit, maxsize
+from sys import argv, exit
+from ip_to_nome_lat_lon import site_from_ip_addr
 
 arguments = argv[1:]
 
@@ -18,6 +19,10 @@ AUTHORITATIVE_NXDOMAIN = 3
 NON_AUTHORITATIVE_ANSWERS = 4
 NON_AUTHORITATIVE_REFUSED = 5
 NON_AUTHORITATIVE_NXDOMAIN = 6
+#RESPONSE_CLIENT_INFO = 7 # [Client Id, Client Name]
+REQUEST_MADE_BY_CLIENT = 7
+REQUEST_MADE_BY_NON_CLIENT = 8
+SERVER_INFO = 9
 
 fin = open(filename, "r")
 
@@ -131,7 +136,14 @@ for line in fin:
                 elif (data[D_PROTO] + ":" + data[D_SPORT]) == "17:53": # dns response
                     key = data[D_SIP]
                     if key not in dns_server_resp:
-                        dns_server_resp[key] = [0, 0, 0, 0, 0, 0, 0, 0]
+                        dns_server_resp[key] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+                        s = site_from_ip_addr(ip_src_a)
+                        dns_server_resp[key][SERVER_INFO] = (int(s[6]), s[0])
+
+                    s = site_from_ip_addr(ip_dst_a)
+                    if int(s[6]) != 1: dns_server_resp[key][REQUEST_MADE_BY_CLIENT] += 1
+                    else: dns_server_resp[key][REQUEST_MADE_BY_NON_CLIENT] += 1
                     
                     dns_server_resp[key][TOTAL_ANSWERS] += 1
 
@@ -166,8 +178,6 @@ with open("req_src_name.txt", "r") as f:
 
         ip_name[ip] = name
 
-        
-
 with open("dns_request.txt", "w") as f, open("dns_request.csv", "w") as csv_f:
     # ordena dicionario em ordem decrescente
     sorted_dns_ip_src = {key: val for key, val in sorted(dns_ip_src.items(), key = lambda item: item[1], reverse=True)}
@@ -175,17 +185,47 @@ with open("dns_request.txt", "w") as f, open("dns_request.csv", "w") as csv_f:
     for key in sorted_dns_ip_src:
         splited_key = key.split(" ")
 
+        ip_src_a = splited_key[0].split(".")
+        s = site_from_ip_addr(ip_src_a)
+        client_id = int(s[6])
+        client_name = s[0]
+
+        #if client_id != 1:
+        max_len_name = 30
+
         padding_ip = " " * (15 - len(splited_key[0]))
         padding_dist = " " * (2 - len(splited_key[1]))
+        padding_id = ""
+        if client_id < 10: padding_id = " "
 
         name = None
         if splited_key[0] in ip_name: name = ip_name[splited_key[0]]
         else: name = "NotOnList"
 
-        padding_name = " " * (max_len_name - len(name))
+        if len(name) > max_len_name:
+            name = name[:26] + "..."
+            padding_name = " "
+        else:
+            padding_name = " " * (max_len_name - len(name))
+        
+        if dns_ip_src[key] < 10:
+            padding_count = " " * 4
+        elif dns_ip_src[key] < 100:
+            padding_count = " " * 3
+        elif dns_ip_src[key] < 1000:
+            padding_count = " " * 2
+        elif dns_ip_src[key] < 10000:
+            padding_count = " "
+        
 
-        print(f"NAME: {name}{padding_name}| IP SRC: {splited_key[0]}{padding_ip}| DIST: {splited_key[1]}{padding_dist}| COUNT: {dns_ip_src[key]}", file=f)
-        print(f"{name};{splited_key[0]};{splited_key[1]};{dns_ip_src[key]}", file=csv_f)
+        f.write(f"CLIENT ID: {client_id}{padding_id}| ")
+        f.write(f"NAME: {name}{padding_name}| ")
+        f.write(f"IP SRC: {splited_key[0]}{padding_ip}| ")
+        f.write(f"DIST: {splited_key[1]}{padding_dist}| ")
+        f.write(f"COUNT: {dns_ip_src[key]}{padding_count}| ")
+        f.write(f"CLIENT NAME: {client_name}\n")
+        print(f"{client_id};{name};{splited_key[0]};{splited_key[1]};{dns_ip_src[key]}", file=csv_f)
+
 
 open_dns = {}
 with open("open_dns_list.txt", "r") as f:
@@ -198,35 +238,22 @@ with open("open_dns_list.txt", "r") as f:
 
 with open("dns_response.txt", "w") as f:
     sorted_dns_server_resp = {key: val for key, val in sorted(dns_server_resp.items(), key = lambda item: item[1][0], reverse=True)}
+    f.write(f"RESPOSTAS DE SERVIDORES DNS\n\n")
     for key in sorted_dns_server_resp:
         if key in open_dns:
-            print(f"{key} ({open_dns[key]})", file=f)
+            print(f"{key} ({open_dns[key]}) *OPEN DNS", file=f)
         else:
-            print(f"{key}", file=f)
-
-        '''
-        f.write(f"\tTOTAL ANSWERS: {sorted_dns_server_resp[key][TOTAL_ANSWERS]}| ")
-
-        percent = (sorted_dns_server_resp[key][AUTHORITATIVE_ANSWERS]/sorted_dns_server_resp[key][TOTAL_ANSWERS])*100
-        f.write(f"AUTHORITATIVE ANSWERS: {sorted_dns_server_resp[key][AUTHORITATIVE_ANSWERS]} ({percent:.2f}%)| ")
-
-        percent = (sorted_dns_server_resp[key][NON_AUTHORITATIVE_ANSWERS]/sorted_dns_server_resp[key][TOTAL_ANSWERS])*100
-        f.write(f"NON AUTHORITATIVE ANSWERS: {sorted_dns_server_resp[key][NON_AUTHORITATIVE_ANSWERS]} ({percent:.2f}%)\n")
-
-        if sorted_dns_server_resp[key][AUTHORITATIVE_ANSWERS] != 0:
-            percent = (sorted_dns_server_resp[key][AUTHORITATIVE_REFUSED_OR_NXDOMAIN]/sorted_dns_server_resp[key][AUTHORITATIVE_ANSWERS])*100
-        else:
-            percent = 0.0
-        f.write(f"\t\tAUTHORITATIVE REFUSED OR NXDOMAIN: {sorted_dns_server_resp[key][AUTHORITATIVE_REFUSED_OR_NXDOMAIN]} ({percent:.2f}%)| ")
-
-        if sorted_dns_server_resp[key][NON_AUTHORITATIVE_ANSWERS] != 0:
-            percent = (sorted_dns_server_resp[key][NON_AUTHORITATIVE_REFUSED_OR_NXDOMAIN]/sorted_dns_server_resp[key][NON_AUTHORITATIVE_ANSWERS])*100
-        else:
-            percent = 0.0
-        f.write(f"NON AUTHORITATIVE REFUSED OR NXDOMAIN: {sorted_dns_server_resp[key][NON_AUTHORITATIVE_REFUSED_OR_NXDOMAIN]} ({percent:.2f}%)\n")
-        '''
+            print(f"{key} ({sorted_dns_server_resp[key][SERVER_INFO][1]})", file=f)
 
         f.write(f"\tTOTAL ANSWERS: {sorted_dns_server_resp[key][TOTAL_ANSWERS]}\n")
+
+        percent = (sorted_dns_server_resp[key][REQUEST_MADE_BY_CLIENT]/sorted_dns_server_resp[key][TOTAL_ANSWERS])*100
+        f.write(f"\t\tTOTAL ANSWERS TO POP CLIENTS: {sorted_dns_server_resp[key][REQUEST_MADE_BY_CLIENT]} ({percent:.2f}%)\n")
+        
+        non_pop_clients = sorted_dns_server_resp[key][TOTAL_ANSWERS] - sorted_dns_server_resp[key][REQUEST_MADE_BY_CLIENT]
+        percent = (non_pop_clients/sorted_dns_server_resp[key][TOTAL_ANSWERS])*100
+        f.write(f"\t\tTOTAL ANSWERS TO NON POP CLIENTS: {non_pop_clients} ({percent:.2f}%)\n")
+        f.write("\t\t-----------------------------------------------------------------\n")
 
         percent = (sorted_dns_server_resp[key][AUTHORITATIVE_ANSWERS]/sorted_dns_server_resp[key][TOTAL_ANSWERS])*100
         f.write(f"\t\tAUTHORITATIVE ANSWERS: {sorted_dns_server_resp[key][AUTHORITATIVE_ANSWERS]} ({percent:.2f}%)\n")
@@ -243,9 +270,10 @@ with open("dns_response.txt", "w") as f:
             percent_nxdomain = 0.0
             no_error = 0
             percent_no_error = 0.0
-        f.write(f"\t\t\tAUTHORITATIVE NO ERROR(REFUSED OR NXDOMAIN): {no_error} ({percent_no_error:.2f}%)\n")
-        f.write(f"\t\t\tAUTHORITATIVE REFUSED: {sorted_dns_server_resp[key][AUTHORITATIVE_REFUSED]} ({percent_refused:.2f}%)\n")
-        f.write(f"\t\t\tAUTHORITATIVE NXDOMAIN: {sorted_dns_server_resp[key][AUTHORITATIVE_NXDOMAIN]} ({percent_nxdomain:.2f}%)\n")
+        
+        f.write(f"\t\t\tREFUSED: {sorted_dns_server_resp[key][AUTHORITATIVE_REFUSED]} ({percent_refused:.2f}%)\n")
+        f.write(f"\t\t\tNXDOMAIN: {sorted_dns_server_resp[key][AUTHORITATIVE_NXDOMAIN]} ({percent_nxdomain:.2f}%)\n")
+        f.write(f"\t\t\tOTHERS: {no_error} ({percent_no_error:.2f}%)\n")
 
 
         percent = (sorted_dns_server_resp[key][NON_AUTHORITATIVE_ANSWERS]/sorted_dns_server_resp[key][TOTAL_ANSWERS])*100
@@ -262,6 +290,7 @@ with open("dns_response.txt", "w") as f:
             percent_nxdomain = 0.0
             no_error = 0
             percent_no_error = 0.0
-        f.write(f"\t\t\tNON AUTHORITATIVE NO ERROR(REFUSED OR NXDOMAIN): {no_error} ({percent_no_error:.2f}%)\n")
-        f.write(f"\t\t\tNON AUTHORITATIVE REFUSED: {sorted_dns_server_resp[key][NON_AUTHORITATIVE_REFUSED]} ({percent_refused:.2f}%)\n")
-        f.write(f"\t\t\tNON AUTHORITATIVE NXDOMAIN: {sorted_dns_server_resp[key][NON_AUTHORITATIVE_NXDOMAIN]} ({percent_nxdomain:.2f}%)\n")
+        
+        f.write(f"\t\t\tREFUSED: {sorted_dns_server_resp[key][NON_AUTHORITATIVE_REFUSED]} ({percent_refused:.2f}%)\n")
+        f.write(f"\t\t\tNXDOMAIN: {sorted_dns_server_resp[key][NON_AUTHORITATIVE_NXDOMAIN]} ({percent_nxdomain:.2f}%)\n")
+        f.write(f"\t\t\tOTHERS: {no_error} ({percent_no_error:.2f}%)\n")
