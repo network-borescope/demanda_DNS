@@ -203,9 +203,10 @@ with open("dns_request.txt", "w") as f, open("dns_request.csv", "w") as csv_f:
         else: name = "NotOnList"
 
         if len(name) > max_len_name:
-            name = name[:26] + "..."
+            truncated_name = name[:26] + "..."
             padding_name = " "
         else:
+            truncated_name = name
             padding_name = " " * (max_len_name - len(name))
         
         if dns_ip_src[key] < 10:
@@ -219,12 +220,12 @@ with open("dns_request.txt", "w") as f, open("dns_request.csv", "w") as csv_f:
         
 
         f.write(f"CLIENT ID: {client_id}{padding_id}| ")
-        f.write(f"NAME: {name}{padding_name}| ")
+        f.write(f"NAME: {truncated_name}{padding_name}| ")
         f.write(f"IP SRC: {splited_key[0]}{padding_ip}| ")
         f.write(f"DIST: {splited_key[1]}{padding_dist}| ")
         f.write(f"COUNT: {dns_ip_src[key]}{padding_count}| ")
         f.write(f"CLIENT NAME: {client_name}\n")
-        print(f"{client_id};{name};{splited_key[0]};{splited_key[1]};{dns_ip_src[key]}", file=csv_f)
+        print(f"{client_id};{name};{splited_key[0]};{splited_key[1]};{dns_ip_src[key]};{client_name}", file=csv_f)
 
 
 open_dns = {}
