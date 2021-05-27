@@ -56,7 +56,11 @@ D_DIST = 12
 D_IDD = 13
 
 
+count =0
+
 for line in fin:
+    count+=1
+    if count% 100000 ==0: print(count)
 
     ident = 0
     altura = 0
@@ -252,7 +256,7 @@ for line in fin:
                 elif proto_port == "6:443": # https
                     key = f"{data[D_SIP]} {data[D_DIST]}"
 
-                    if key in dns_match:
+                    if key in dns_match and data[D_DIP] in ip_query:
                         key2 = ip_query[data[D_DIP]]
 
                         if key2 in dns_match[key]:
