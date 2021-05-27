@@ -7,3 +7,4 @@ __pycache__
 !dns_ips_name.txt
 !req_src_name.txt
 !pop_df_lat_lon.txt
+capture.sh
