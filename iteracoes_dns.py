@@ -21,6 +21,7 @@ DUPLICATED_REQUEST = 1
 RESPONSE = 2
 RESPONSE_ERROR = 3
 
+ip_query = {} # ip -> query
 
 dns_duplicated = {} # {"ip_src query": { f"{query_id}{ip_dst}": resp } }
 
@@ -223,11 +224,39 @@ for line in fin:
                                         dns_statistic[TOTAL_PAIRS_DUPLICATED] += 1 # total de pares pergunta e resposta que sao duplicados
                                         dns_statistic[QUERY_NON_SEQUENCE] += 1 # total de pares pergunta e resposta que nao fazem parte de um Burst
 
+                                    # pega ip's da resposta
+                                    items = items[query_pos+1:]
+                                    try:
+                                        pos = items.index("A") + 1
+                                    except ValueError: # not on list
+                                        pos = -1
+
+                                    while pos != -1:
+                                        query_response_ip = items[pos]
+
+                                        if query_response_ip[len(query_response_ip)-1] == ",":
+                                            query_response_ip = query_response_ip[:-1] # remove a virgula
+
+                                        ip_query[query_response_ip] = query
+
+                                        items = items[pos+1:]
+
+                                        try:
+                                            pos = items.index("A")
+                                        except ValueError: # not on list
+                                            pos = -1
+
                 elif proto_port == "6:80": # http
-                    pass
+                    continue
 
                 elif proto_port == "6:443": # https
-                    pass
+                    key = f"{data[D_SIP]} {data[D_DIST]}"
+
+                    if key in dns_match:
+                        key2 = ip_query[data[D_DIP]]
+
+                        if key2 in dns_match[key]:
+                            dns_match[key][key2]["web"] = f"{data[D_HORA]} {line.strip()}"
 
     elif altura == 2: # corpo do http
         if len(data) == 0: continue
@@ -293,6 +322,8 @@ with open("output.txt", "w") as fout:
                         else: # web
                             fout.write(f"\t\t{match}\n")
 
+#for ip in ip_query:
+    #print(f"{ip} -> {ip_query[ip]}")
 '''
 for key in dns_match:
     del dns_match[key]["dst"]
