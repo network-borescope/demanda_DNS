@@ -147,45 +147,46 @@ for line in fin:
                     if items[6][0] >= '0' and items[6][0] <= '9':
                         query_id = items[6].replace("+", "")
                         query_id = query_id.replace("%", "")
-                    
+
                         #key = f"{data[D_SIP]} {data[D_DIST]} {query}"
                         #key2 = f"{query_id} {data[D_DIP]}"
                         key = f"{data[D_SIP]} {data[D_DIST]}"
                         key2 = f"{query}"
                         key3 = f"{query_id} {data[D_DIP]}"
 
-                        # { f"{ip_src} {distancia}": { 
+                        # { f"{ip_src} {distancia}": {
                         #   "query": {
                         #       "dst": conj dst perguntas,
                         #       f"{query_id} {ip_dst}": [dns_req,duplicated_request,dns_resp,response_erro],
-                        #       "web": acesso}  
+                        #       "web": acesso}
                         #   }
                         # }
                         if key not in dns_match:
                             # key3: [req, duplicated_request?, response, response_erro]
                             dns_match[key] = { key2: { "dst": set(), "web": None, key3: [f"{data[D_HORA]} {line.strip()}", False, None, False] } }
                             dns_match[key][key2]["dst"].add(data[D_DIP])
-                        
+
                         elif key2 not in dns_match[key]: # mesmo ip de origem perguntando por outro dominio
                             dns_match[key][key2] = { "dst": set(), "web": None, key3: [f"{data[D_HORA]} {line.strip()}", False, None, False] }
 
+                            dns_match[key][key2]["dst"].add(data[D_DIP])
                         # pergunta repetida sendo feita a um servidor DNS diferente
                         elif data[D_DIP] not in dns_match[key][key2]["dst"] and dns_match[key][key2]["web"] == None:
                             if key3 in dns_match[key][key2]: print(f"{data[D_HORA]} {line.strip()}") # colisao?
 
                             dns_match[key][key2]["dst"].add(data[D_DIP])
-                            
+
                             dns_match[key][key2][key3] = [f"{data[D_HORA]} {line.strip()}", False, None, False] # req, duplicated_request?, response, response_error?
-                        
+
                         elif dns_match[key][key2]["web"] == None: # pergunta repetida para um servidor dns repetido
                             if key2 not in dns_match[key]:
-                                dns_match[key][key2] = [f"{data[D_HORA]} {line.strip()}", True, None, False] # req, duplicated_request?, response, response_error?
+                                dns_match[key][key2][key3] = [f"{data[D_HORA]} {line.strip()}", True, None, False] # req, duplicated_request?, response, response_error?
 
                 elif (data[D_PROTO] + ":" + data[D_SPORT]) == "17:53": # dns response
                     try:
                         query_pos = items.index("A?") + 1
                         query = items[query_pos][:-1] # remove o ponto
-                    
+
                     except ValueError:
                             continue
 
@@ -216,7 +217,7 @@ for line in fin:
                                             dns_match[key][key2][key3][RESPONSE_ERROR] = True
 
                                             dns_statistic[TOTAL_PAIRS_WITH_ERROR] += 1 # total de pares pergunta e resposta com erro
-                                    
+
                                     if dns_match[key][key2][key3][DUPLICATED_REQUEST]: # eh duplicado
 
                                         dns_statistic[TOTAL_PAIRS_DUPLICATED] += 1 # total de pares pergunta e resposta que sao duplicados
@@ -256,7 +257,7 @@ def get_ip_dst(line):
     return items[3][:pos_port]
 
 with open("output.txt", "w") as fout:
-    fout.write("Dada a tripla ip de origem, distancia e query: Iteracoes dns antes do primeiro acesso web")
+    fout.write("Dada a tripla ip de origem, distancia e query: Iteracoes dns antes do primeiro acesso web \n")
     for key in dns_match: # ip de origem, distancia
         matches = {}
         write_key = False # garante que sera escrito apenas aqueles que tem iteracoes
@@ -264,23 +265,24 @@ with open("output.txt", "w") as fout:
         for key2 in dns_match[key]: # dominios
             matches[key2] = []
 
-            del dns_match[key][key2]["dns"]
+            del dns_match[key][key2]["dst"]
 
             web = dns_match[key][key2]["web"]
             del dns_match[key][key2]["web"]
-
-            for key3 in dns_match[key][key2]:
-                for dns_pair in dns_match[key][key2][key3]:
-                    if dns_pair[RESPONSE] != None: # possui resposta
+            if web != None:
+                for key3 in dns_match[key][key2]:
+                    #for dns_pair in dns_match[key][key2][key3]:
+                    dns_pair = dns_match[key][key2][key3]
+                    if dns_pair[RESPONSE] != None and not dns_pair[DUPLICATED_REQUEST]: # possui resposta
                         matches[key2].append(dns_pair)
-                    
+
                         write_key = True
-            
-            matches[key2].append(web)
-        
+
+                matches[key2].append(web)
+
         if write_key:
             fout.write(f"{key}\n")
-            
+
             for query in matches: # query = key2
                 if len(matches[query]) > 1:
                     fout.write(f"\t{query}\n")
@@ -301,7 +303,7 @@ for key in dns_match:
         # se tem resposta? e (nao eh duplicado ou duplicado permitido)
         if dns_match[key][key2][RESPONSE] != None: # tem resposta?
             #matches.append((dns_match[key][key2][REQUEST], dns_match[key][key2][RESPONSE], dns_match[key][key2][2])) # (pergunta, resposta)
-            
+
             if not dns_match[key][key2][DUPLICATED_REQUEST]: # nao eh duplicado
                 matches.append(dns_match[key][key2])
 
@@ -316,25 +318,25 @@ for key in dns_match:
                 fout.write(f"\t{match[RESPONSE]}\n\n") # resposta
 
                 dns_statistic[QUERY_SEQUENCE] += 1 # total de pares pergunta e resposta que fazem parte de um burst
-            
+
             elif not match[DUPLICATED_REQUEST] and match[RESPONSE_ERROR]: # NAO eh duplicado e TEM erro
                 fout.write(f"\t{match[REQUEST]}\n") # pergunta
                 fout.write(f"\t{match[RESPONSE]}\n\n") # resposta
 
                 dns_statistic[QUERY_SEQUENCE] += 1 # total de pares pergunta e resposta que fazem parte de um burst
                 dns_statistic[QUERY_ERROR_PAIRS] += 1 # total de pares pergunta e resposta com erro, que fazem parte de um burst
-            
+
             # Executados apenas quando temos duplicated != None
             elif match[DUPLICATED_REQUEST] and not match[RESPONSE_ERROR]: # EH duplicado e NAO TEM erro
                 fout.write(f"\t{match[REQUEST]}\n") # pergunta
                 fout.write(f"\t{match[RESPONSE]}\n\n") # resposta
-            
+
             else: # EH duplicado e TEM erro
                 duplicated_error_count += 1
 
         if duplicated != None:
             fout.write(f"\tTotal de pares duplicados com respostas Refused ou NxDomain: {duplicated_error_count} omitidos\n\n")
-    
+
     elif len(matches) == 1:
         dns_statistic[QUERY_NON_SEQUENCE] += 1 # total de pares pergunta e resposta que nao fazem parte de um burst
 
