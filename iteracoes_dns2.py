@@ -1,5 +1,5 @@
-from os import times
 from sys import argv, exit
+from ip_to_nome_lat_lon import site_from_ip
 
 duplicated = None
 arguments = argv[1:]
@@ -21,7 +21,9 @@ DUPLICATED_REQUEST = 1
 RESPONSE = 2
 RESPONSE_ERROR = 3
 
-ip_query = {} # ip -> query
+ip_query = {} # f"{ip src}{ip dst}" -> query
+
+ip_query_only_dst = {} # f"{ip dst}" -> query
 
 dns_duplicated = {} # {"ip_src query": { f"{query_id}{ip_dst}": resp } }
 
@@ -35,6 +37,12 @@ QUERY_SEQUENCE = 3
 QUERY_NON_SEQUENCE = 4
 QUERY_ERROR_PAIRS = 5 # Refused, NXDomain
 dns_statistic = [0, 0, 0, 0, 0, 0]
+
+total_web = {} # {f"{ip src}{ip dst}{dst}{host}": host;line}
+
+ip_dns_req_web = set() # conjunto de ips que fazem req DNS e acesso Web
+ip_dns_req = set() # lista de ips que fazem req DNS
+ip_web = set() # lista de ips que fazem acesso web
 
 fin = open(filename, "r")
 
@@ -166,6 +174,7 @@ for line in fin:
                         #       "web": acesso}
                         #   }
                         # }
+                        ip_dns_req.add(data[D_SIP])
                         if key not in dns_match:
                             # key3: [req, duplicated_request?, response, response_erro]
                             dns_match[key] = { key2: { "dst": set(), "web": None, key3: [f"{data[D_HORA]} {line.strip()}", False, None, False] } }
@@ -211,7 +220,8 @@ for line in fin:
                         if key in dns_match:
                             # response == None para pegar apenas a primeira resposta
                             # web == None para pegar apenas iteracoes antes do primeiro acesso
-                            if key2 in dns_match[key] and dns_match[key][key2]["web"] == None and key3 in dns_match[key][key2]:
+                            #if key2 in dns_match[key] and dns_match[key][key2]["web"] == None and key3 in dns_match[key][key2]:
+                            if key2 in dns_match[key] and key3 in dns_match[key][key2]:
                                 if dns_match[key][key2][key3][RESPONSE] == None:
                                     dns_match[key][key2][key3][RESPONSE] = f"{data[D_HORA]} {line.strip()}"
 
@@ -241,7 +251,10 @@ for line in fin:
                                         if query_response_ip[len(query_response_ip)-1] == ",":
                                             query_response_ip = query_response_ip[:-1] # remove a virgula
 
-                                        ip_query[query_response_ip] = query
+                                        ip_query[f"{data[D_DIP]}{query_response_ip}"] = query
+
+                                        # only dst
+                                        ip_query_only_dst[query_response_ip] = query
 
                                         items = items[pos+1:]
 
@@ -254,13 +267,37 @@ for line in fin:
                     continue
 
                 elif proto_port == "6:443": # https
+                    ip_web.add(data[D_SIP]) # ip fez acesso web
+
                     key = f"{data[D_SIP]} {data[D_DIST]}"
 
-                    if key in dns_match and data[D_DIP] in ip_query:
-                        key2 = ip_query[data[D_DIP]]
+                    #if key in dns_match and data[D_DIP] in ip_query:
+                    if key in dns_match and f"{data[D_SIP]}{data[D_DIP]}" in ip_query:
+                        #key2 = ip_query[data[D_DIP]]
+                        key2 = ip_query[f"{data[D_SIP]}{data[D_DIP]}"] # pega a query
 
-                        if key2 in dns_match[key] and dns_match[key][key2]["web"] == None:
-                            dns_match[key][key2]["web"] = f"{data[D_HORA]} {line.strip()}"
+                        if key2 in dns_match[key]:
+                            ip_dns_req_web.add(data[D_SIP]) # o ip fez req DNS e acesso Web
+
+                            # antes de aceitar verifica se ha uma resposta
+                            accept_web = False
+                            for item in dns_match[key][key2]:
+
+                                if isinstance(dns_match[key][key2][item], list):
+                                    if item[RESPONSE] != None:
+                                        accept_web = True
+                                        break
+
+                            if accept_web and dns_match[key][key2]["web"] == None:
+                                dns_match[key][key2]["web"] = f"{data[D_HORA]} {line.strip()}"
+                    
+                    # total web
+                    if data[D_DIP] in ip_query_only_dst:
+                        #print("aqui")
+                        query = ip_query_only_dst[data[D_DIP]]
+
+                        if f"{data[D_SIP]}{data[D_DIP]}{data[D_DIST]}{query}" not in total_web:
+                                total_web[f"{data[D_SIP]}{data[D_DIP]}{data[D_DIST]}{query}"] = f" {query};{line.strip()}"
 
     elif altura == 2: # corpo do http
         if len(data) == 0: continue
@@ -272,12 +309,34 @@ for line in fin:
         elif items[0] == "User-Agent:": data[D_US_AG] = items[1]
 
         if data[D_HOST] != "0" and data[D_US_AG] != "0":
+            ip_web.add(data[D_SIP]) # ip fez acesso web
+
             key = f"{data[D_SIP]} {data[D_DIST]}"
-            key2 = f"{data[D_HOST]}" # query
+            #key2 = f"{data[D_HOST]}" # query
+
+            line = "ip src:"+data[D_SIP]+"|ip dst:"+data[D_DIP]+"|ttl:"+data[D_TTL]+"("+ data[D_DIST] +")"+"|porta src:"+data[D_SPORT]+"|ip-id:"+data[D_IP_ID]+"|user-agent:"+data[D_US_AG]
+
+            if f"{data[D_SIP]}{data[D_DIP]}" in ip_query:
+                key2 = ip_query[f"{data[D_SIP]}{data[D_DIP]}"] # pega a query
+            else:
+                continue
+
+            if f"{data[D_SIP]}{data[D_DIP]}{data[D_DIST]}{data[D_HOST]}" not in total_web:
+                total_web[f"{data[D_SIP]}{data[D_DIP]}{data[D_DIST]}{data[D_HOST]}"] = f"{data[D_HOST]};{line}"
 
             if key in dns_match and key2 in dns_match[key]:
-                if dns_match[key][key2]["web"] == None:
-                    line = "|ip src:"+data[D_SIP]+"|ip dst:"+data[D_DIP]+"|ttl:"+data[D_TTL]+"|porta src:"+data[D_SPORT]+"|ip-id:"+data[D_IP_ID]+"|user-agent:"+data[D_US_AG]
+                ip_dns_req_web.add(data[D_SIP]) # o ip fez req DNS e acesso Web
+
+                # antes de aceitar verifica se ha uma resposta
+                accept_web = False
+                for item in dns_match[key][key2]:
+
+                    if isinstance(dns_match[key][key2][item], list):
+                        if item[RESPONSE] != None:
+                            accept_web = True
+                            break
+
+                if accept_web and dns_match[key][key2]["web"] == None:
                     dns_match[key][key2]["web"] = f"{data[D_HORA]} {line.strip()}"
 
 
@@ -289,8 +348,9 @@ def get_ip_dst(line):
     pos_port = items[3].rfind(".")
     return items[3][:pos_port]
 
-with open("output.txt", "w") as fout:
-    fout.write("Dada a tripla ip de origem, distancia e query: Iteracoes dns antes do primeiro acesso web \n")
+with open(f"output{output_n}.txt", "w") as fout, open(f"output_dns_web{output_n}.txt", "w") as fout_dns_web:
+    fout.write("Dada a dupla ip de origem, distancia, para cada query feita por ele lista as Iteracoes dns antes do primeiro acesso web\n\n")
+    fout_dns_web.write("Lista de acessos web que foram feitos por um IP que fez pelo menos um request DNS(nao necessariamente possui response)\n\n")
     for key in dns_match: # ip de origem, distancia
         matches = {}
         write_key = False # garante que sera escrito apenas aqueles que tem iteracoes
@@ -303,6 +363,9 @@ with open("output.txt", "w") as fout:
             web = dns_match[key][key2]["web"]
             del dns_match[key][key2]["web"]
             if web != None:
+
+                fout_dns_web.write(f"Host: {key2}\nAcesso: {web}\n\n")
+
                 for key3 in dns_match[key][key2]:
                     #for dns_pair in dns_match[key][key2][key3]:
                     dns_pair = dns_match[key][key2][key3]
@@ -314,7 +377,10 @@ with open("output.txt", "w") as fout:
                 matches[key2].append(web)
 
         if write_key:
-            fout.write(f"{key}\n")
+            splited_key = key.split(" ")
+
+            client = site_from_ip(splited_key[0])[0]
+            fout.write(f"IP SRC: {splited_key[0]}({client})| DIST: {splited_key[1]}\n")
 
             for query in matches: # query = key2
                 if len(matches[query]) > 1:
@@ -324,7 +390,54 @@ with open("output.txt", "w") as fout:
                             fout.write(f"\t\t{match[REQUEST]}\n") # request
                             fout.write(f"\t\t{match[RESPONSE]}\n\n") # response
                         else: # web
-                            fout.write(f"\t\t{match}\n")
+                            fout.write(f"\t\t{match}\n\n")
+'''
+with open(f"Resumo{output_n}.txt", "w") as fout_resumo:
+    fout_resumo.write("LISTA DE IP'S QUE FAZEM REQ DNS E ACESSO WEB\n")
+    for ip in ip_dns_req_web:
+        fout_resumo.write(f"\t{ip}\n")
+    
+    fout_resumo.write("---------------------------------------------------------------------\n")
+'''
+with open(f"Resumo{output_n}.txt", "w") as fout_resumo:
+    fout_resumo.write(f"QUANTIDADE DE IP'S QUE FAZEM REQ DNS: {len(ip_dns_req)}\n")
+    percent = (len(ip_dns_req_web)/len(ip_dns_req)) * 100
+    fout_resumo.write(f"\tQUANTIDADE DE IP'S QUE FAZEM REQ DNS E ACESSO WEB: {len(ip_dns_req_web)}({percent:.2f}%)\n\n")
+
+    fout_resumo.write(f"QUANTIDADE DE IP'S QUE FAZEM ACESSO WEB: {len(ip_web)}\n")
+
+with open(f"output_dns_list{output_n}.txt", "w") as fout_dns_list:
+    fout_dns_list.write("Lista de pares request, response DNS encontrados(nao necessariamente possui um acesso web em seguida)\n\n")
+    for key in dns_match:
+        for key2 in dns_match[key]:
+            for key3 in dns_match[key][key2]:
+                dns_pair = dns_match[key][key2][key3]
+
+                if dns_pair[RESPONSE] != None and not dns_pair[DUPLICATED_REQUEST]:
+                    items = dns_pair[RESPONSE].split(" ")
+
+                    if "*" in items[7] or "*" in items[8]:
+                        fout_dns_list.write(f"AUTHORITATIVE\n")
+                        fout_dns_list.write(f"{dns_pair[REQUEST]}\n")
+                        fout_dns_list.write(f"{dns_pair[RESPONSE]}\n\n")
+                    
+                    else:
+                        fout_dns_list.write(f"{dns_pair[REQUEST]}\n")
+                        fout_dns_list.write(f"{dns_pair[RESPONSE]}\n\n")
+'''
+with open(f"Resumo{output_n}.txt", "a") as fout_resumo:
+    fout_resumo.write("LISTA DE IP'S QUE FAZEM REQ\n")
+    for ip in ip_dns_req:
+        fout_resumo.write(f"{ip}\n")
+'''
+with open(f"output_total_web{output_n}.txt", "w") as fout_total_web:
+    fout_total_web.write("todos os acessos web(sem repeticao)\n\n")
+    for key in total_web:
+        #fout_total_web.write(f"{total_web[key]}\n")
+        splited = total_web[key].split(";")
+        fout_total_web.write(f"Host: {splited[0]}\n")
+        fout_total_web.write(f"Acesso: {splited[1]}\n\n")
+        
 
 #for ip in ip_query:
     #print(f"{ip} -> {ip_query[ip]}")
