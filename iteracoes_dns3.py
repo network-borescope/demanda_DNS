@@ -178,7 +178,9 @@ for line in fin:
                         #mascara = f"{ip_src_a[0]}.{ip_src_a[1]}.0.0/16"
                         mascara = f"{ip_src_a[0]}.0.0.0/8"
 
-                        key = f"{mascara} {data[D_DIST]} {query}"
+                        #key = f"{mascara} {data[D_DIST]} {query}"
+                        #key = f"{mascara} {query}"
+                        key = f"{query}"
                         key2 = f"{data[D_SIP]} {data[D_DIP]} {query_id}"
 
                         # { f"{mask} {distancia} {query}": {
@@ -225,7 +227,9 @@ for line in fin:
                         #mascara = f"{ip_dst_a[0]}.{ip_dst_a[1]}.0.0/16" # mascara de quem fez a requisicao
                         mascara = f"{ip_dst_a[0]}.0.0.0/8"
 
-                        key = f"{mascara} {data[D_DIST]} {query}"
+                        #key = f"{mascara} {data[D_DIST]} {query}"
+                        #key = f"{mascara} {query}"
+                        key = f"{query}"
                         key2 = f"{data[D_DIP]} {data[D_SIP]} {query_id}"
 
                         if key in dns_match:
@@ -295,7 +299,9 @@ for line in fin:
                         query = know_ips[mascara][data[D_DIP]]
                     else: continue
 
-                    key = f"{mascara} {data[D_DIST]} {query}"
+                    #key = f"{mascara} {data[D_DIST]} {query}"
+                    #key = f"{mascara} {query}"
+                    key = f"{query}"
                     #key2 = f"{data[D_SIP]} {data[D_DIP]} {query_id}"
 
                     if key in dns_match:
@@ -420,9 +426,11 @@ with open(f"output{output_n}.txt", "w") as fout:
                 if dns_pair[RESPONSE] != None and not dns_pair[DUPLICATED_REQUEST]:
                     match.append(dns_pair)
             
-            if len(match) > 0:
-                splited_key = key.split(" ")
-                fout.write(f"IP RANGE:{splited_key[0]}| DIST: {splited_key[1]}| HOST: {splited_key[2]}\n")
+            if len(match) > 1:
+                #splited_key = key.split(" ")
+                #fout.write(f"IP RANGE:{splited_key[0]}| DIST: {splited_key[1]}| HOST: {splited_key[2]}\n")
+                #fout.write(f"IP RANGE:{splited_key[0]}| HOST: {splited_key[1]}\n")
+                fout.write(f"HOST: {key}\n")
                 for dns in match:
                     fout.write(f"\tREQUEST SRC: {dns[REQUEST_CLIENT]}| DNS SERVER: {dns[RESPONSE_CLIENT]}\n")
                     fout.write(f"\t{dns[REQUEST]}\n")
