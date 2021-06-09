@@ -274,14 +274,11 @@ for line in fin:
                                         if query_response_ip[len(query_response_ip)-1] == ",":
                                             query_response_ip = query_response_ip[:-1] # remove a virgula
                                         
-                                        if mascara not in know_ips:
-                                            know_ips[mascara] = {}
-                                        
-                                        know_ips[mascara][query_response_ip] = query
-                                        #ip_query[f"{data[D_DIP]}{query_response_ip}"] = query
+                                        #if mascara not in know_ips:
+                                            #know_ips[mascara] = {}
+                                        #know_ips[mascara][query_response_ip] = query
+                                        know_ips[query_response_ip] = query
 
-                                        # only dst
-                                        #ip_query_only_dst[query_response_ip] = query
 
                                         items = items[pos+1:]
 
@@ -295,8 +292,10 @@ for line in fin:
                     mascara = f"{ip_src_a[0]}.0.0.0/8"
 
                     query = None
-                    if mascara in know_ips and data[D_DIP] in know_ips[mascara]:
-                        query = know_ips[mascara][data[D_DIP]]
+                    #if mascara in know_ips and data[D_DIP] in know_ips[mascara]:
+                        #query = know_ips[mascara][data[D_DIP]]
+                    if data[D_DIP] in know_ips:
+                        query = know_ips[data[D_DIP]]
                     else: continue
 
                     #key = f"{mascara} {data[D_DIST]} {query}"
