@@ -34,6 +34,12 @@ REQUEST_CLIENT = 2 # cliente Name
 RESPONSE = 3
 RESPONSE_ERROR = 4
 RESPONSE_CLIENT = 5
+DNS_REQUEST_DIST_TTL = 6
+DNS_RESPONSE_DIST_TTL = 7
+
+WEB_REQ = 0
+WEB_REQ_CLIENT = 1
+WEB_DIST_TTL = 2
 
 ip_query = {} # f"{ip src}{ip dst}" -> query
 
@@ -183,32 +189,32 @@ for line in fin:
                         key = f"{query}"
                         key2 = f"{data[D_SIP]} {data[D_DIP]} {query_id}"
 
-                        # { f"{mask} {distancia} {query}": {
+                        # { f"{query}": {
                         #   "dst": conj dst perguntas,
                         #   f"{ip_src} {ip_dst} {query_id}": [dns_req, dns_resp],
-                        #   "web": primeiro acesso Web da mask
+                        #   "web": {f"{ip_src}{ip_dst}{port_dst}": web_access}
                         # }
 
                         ip_dns_req.add(data[D_SIP])
                         client_name = site_from_ip(data[D_SIP])[0]
 
                         if key not in dns_match:
-                            dns_match[key] = { "dst": set(), "web": None, key2: [f"{data[D_HORA]} {line.strip()}", False, client_name, None, False, None] }
+                            dns_match[key] = { "dst": set(), "web": {}, key2: [f"{data[D_HORA]} {line.strip()}", False, client_name, None, False, None, f"{data[D_DIST]}({data[D_TTL]})", None] }
                             
                             dns_match[key]["dst"].add(data[D_DIP])
                         
                         # query repetida
-                        elif dns_match[key]["web"] == None:
+                        elif len(dns_match[key]["web"]) == 0:
                             
                             # mesma query para outro servidor DNS
                             if key2 not in dns_match[key] and data[D_DIP] not in dns_match[key]["dst"]:
-                                dns_match[key][key2] = [f"{data[D_HORA]} {line.strip()}", False, client_name, None, False, None]
+                                dns_match[key][key2] = [f"{data[D_HORA]} {line.strip()}", False, client_name, None, False, None, f"{data[D_DIST]}({data[D_TTL]})", None]
 
                                 dns_match[key]["dst"].add(data[D_DIP])
 
                             # mesma query sendo feita a um servidor DNS repetido
                             elif data[D_DIP] in dns_match[key]["dst"]:
-                                dns_match[key][key2] = [f"{data[D_HORA]} {line.strip()}", True, client_name, None, False, None] # req, duplicated_request?, req_src, response, response_error?, resp_src
+                                dns_match[key][key2] = [f"{data[D_HORA]} {line.strip()}", True, client_name, None, False, None, f"{data[D_DIST]}({data[D_TTL]})", None] # req, duplicated_request?, req_src, response, response_error?, resp_src
 
                 elif (data[D_PROTO] + ":" + data[D_SPORT]) == "17:53": # dns response
                     try:
@@ -244,6 +250,7 @@ for line in fin:
 
                                     dns_match[key][key2][RESPONSE] = f"{data[D_HORA]} {line.strip()}"
                                     dns_match[key][key2][RESPONSE_CLIENT] = client_name
+                                    dns_match[key][key2][DNS_RESPONSE_DIST_TTL] = f"{data[D_DIST]}({data[D_TTL]})"
 
                                     dns_statistic[TOTAL_PAIRS] += 1 # total de pares pergunta e resposta
 
@@ -302,10 +309,12 @@ for line in fin:
                     #key = f"{mascara} {query}"
                     key = f"{query}"
                     #key2 = f"{data[D_SIP]} {data[D_DIP]} {query_id}"
+                    web_key = f"{data[D_SIP] + data[D_DIP] + port_dst}"
 
                     if key in dns_match:
-                        if dns_match[key]["web"] == None:
+                        client_name = site_from_ip(data[D_SIP])[0]
 
+                        if len(dns_match[key]["web"]) == 0:
                             # antes de aceitar verifica se ha uma resposta
                             accept_web = False
                             for key2 in dns_match[key]:
@@ -317,7 +326,15 @@ for line in fin:
                                         break
                             
                             if accept_web:
-                                dns_match[key]["web"] = f"{data[D_HORA]} {line.strip()}"
+                                # WEB_REQ = 0 WEB_REQ_CLIENT = 1 WEB_DIST_TTL = 2
+                                dns_match[key]["web"] = { web_key: [f"{data[D_HORA]} {line.strip()}", client_name, f"{data[D_DIST]}({data[D_TTL]})"] }
+                                #dns_match[key]["web"] = f"{data[D_HORA]} {line.strip()}"
+                        
+                        elif web_key not in dns_match[key]["web"]:
+                            dns_match[key]["web"][web_key] = [f"{data[D_HORA]} {line.strip()}", client_name, f"{data[D_DIST]}({data[D_TTL]})"]
+                            #dns_match[key]["web"][web_key] = f"{data[D_HORA]} {line.strip()}"
+
+
 
 '''
                 elif proto_port == "6:443": # https
@@ -415,12 +432,13 @@ with open(f"output{output_n}.txt", "w") as fout:
         del dns_match[key]["dst"]
 
         web = dns_match[key]["web"]
-
-        if web != None:
+        del dns_match[key]["web"]
+        if len(web) > 0: # houve acesso web
             match = []
 
             for key2 in dns_match[key]:
                 dns_pair = dns_match[key][key2]
+
 
                 if dns_pair[RESPONSE] != None and not dns_pair[DUPLICATED_REQUEST]:
                     match.append(dns_pair)
@@ -431,8 +449,15 @@ with open(f"output{output_n}.txt", "w") as fout:
                 #fout.write(f"IP RANGE:{splited_key[0]}| HOST: {splited_key[1]}\n")
                 fout.write(f"HOST: {key}\n")
                 for dns in match:
-                    fout.write(f"\tREQUEST SRC: {dns[REQUEST_CLIENT]}| DNS SERVER: {dns[RESPONSE_CLIENT]}\n")
+                    #fout.write(f"\tDNS REQUEST SRC: {dns[REQUEST_CLIENT]}| REQ DISTANCIA(TTL): {dns[DNS_REQUEST_DIST_TTL]}| DNS SERVER: {dns[RESPONSE_CLIENT]}| RESP DISTANCIA(TTL): {dns[DNS_RESPONSE_DIST_TTL]}\n")
+                    fout.write(f"\tDNS REQUEST SRC: {dns[REQUEST_CLIENT]}| REQ DISTANCIA(TTL): {dns[DNS_REQUEST_DIST_TTL]}| DNS SERVER: {dns[RESPONSE_CLIENT]}\n")
                     fout.write(f"\t{dns[REQUEST]}\n")
                     fout.write(f"\t{dns[RESPONSE]}\n\n")
                 
-                fout.write(f"\tWEB: {web}\n\n")
+                #for web_access in web:
+                    #fout.write(f"\tWEB: {web[web_access]}\n")
+                
+                for k, web_access in web.items():
+                    fout.write(f"\tWEB REQUEST SRC: {web_access[WEB_REQ_CLIENT]}| DISTANCIA(TTL): {web_access[WEB_DIST_TTL]}\n")
+                    fout.write(f"\t{web_access[WEB_REQ]}\n\n")
+                fout.write(f"\n\n")
