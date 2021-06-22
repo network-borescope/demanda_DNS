@@ -41,14 +41,15 @@ INTERNA = 0
 EXTERNA = 1
 interfaces = { "cc4e 2442 550c": EXTERNA, "cc4e 2442 550d": INTERNA }
 
-dns_count = { EXTERNA: [0, 0, 0, 0, 0, 0, 0], INTERNA: [0, 0, 0, 0, 0, 0, 0] }
+dns_count = { EXTERNA: [0, 0, 0, 0, 0, 0, 0, 0], INTERNA: [0, 0, 0, 0, 0, 0, 0, 0] }
 TOTAL_REQ = 0
 TOTAL_PAIRS = 1
-WITHOUT_PAIR = 2
+REQ_WITHOUT_PAIR = 2
 REQ_EOF = 3
 TOTAL_RESP = 4
 PAIRS_RESP_INTERNA = 5
 PAIRS_RESP_EXTERNA = 6
+RESP_WITHOUT_PAIR = 7
 
 know_ips = {}
 
@@ -197,7 +198,8 @@ for line in fin:
                         data[D_QUERY] = query
 
                     except ValueError:
-                            continue
+                        data = []
+                        continue
 
                     if items[6][0] >= '0' and items[6][0] <= '9':
                         query_id = items[6].replace("*", "")
@@ -253,18 +255,22 @@ for line in fin:
             if interface in interfaces:
                 if f"{data[D_PROTO]}:{data[D_DPORT]}" == "17:53": # request
                     key = f"{data[D_SIP]} {data[D_SPORT]} {data[D_DIP]} {data[D_QUERY_ID]} {data[D_QUERY]}"
-                    try:
+                    if key in dns_match:
                         dns_match[key][REQ_INTERFACE] = interfaces[interface]
-                    except:
+                    else:
                         print("key error:", key)
 
                 elif f"{data[D_PROTO]}:{data[D_SPORT]}" == "17:53": # response
-                    dns_count[interfaces[interface]][TOTAL_RESP] += 1
+                    #dns_count[interfaces[interface]][TOTAL_RESP] += 1
                     
                     key = f"{data[D_DIP]} {data[D_DPORT]} {data[D_SIP]} {data[D_QUERY_ID]} {data[D_QUERY]}"
 
                     if key in dns_match:
                         dns_match[key][RESP_INTERFACE] = interfaces[interface]
+                    else:
+                        dns_count[interfaces[interface]][TOTAL_RESP] += 1 # resposta sem par contabilizada no total
+                        dns_count[interfaces[interface]][RESP_WITHOUT_PAIR] += 1 # resposta sem par
+
 fin.close()
 f_resp.close()
 
@@ -283,6 +289,7 @@ with open("req_sem_resp.txt", "w") as f:
         if not dns_req_eof(last_hour, dns[REQUEST_TIME], delta_seconds=2): #delta-seconds = segundos restantes no arquivo
             if dns[RESPONSE] != None:
                 dns_count[dns[REQ_INTERFACE]][TOTAL_PAIRS] += 1
+                dns_count[dns[RESP_INTERFACE]][TOTAL_RESP] += 1 # resposta com par
 
                 if dns[RESP_INTERFACE] == INTERNA:
                     dns_count[dns[REQ_INTERFACE]][PAIRS_RESP_INTERNA] += 1
@@ -291,42 +298,50 @@ with open("req_sem_resp.txt", "w") as f:
 
             else:
                 print(dns[REQUEST], file=f)
-                dns_count[dns[REQ_INTERFACE]][WITHOUT_PAIR] += 1
+                dns_count[dns[REQ_INTERFACE]][REQ_WITHOUT_PAIR] += 1
         else:
             dns_count[dns[REQ_INTERFACE]][REQ_EOF] += 1
 
 with open("capture_check.txt", "w") as fout:
     #print("INTERNA", file=fout)
-    print(f"QTD DE RESPONSES INTERFACE INTERNA: {dns_count[INTERNA][TOTAL_RESP]}", file=fout)
-    print(f"QTD DE REQUESTS  INTERFACE INTERNA: {dns_count[INTERNA][TOTAL_REQ]}", file=fout)
-    print(f"QTD DE RESPONSES INTERFACE EXTERNA: {dns_count[EXTERNA][TOTAL_RESP]}", file=fout)
-    print(f"QTD DE REQUESTS  INTERFACE EXTERNA: {dns_count[EXTERNA][TOTAL_REQ]}\n\n", file=fout)
+    print(f"QTD DE REQUEST  'A' INTERFACE INTERNA: {dns_count[INTERNA][TOTAL_REQ]}", file=fout)
+    print(f"QTD DE RESPONSE 'A' INTERFACE INTERNA: {dns_count[INTERNA][TOTAL_RESP]}", file=fout)
+    print(f"QTD DE REQUEST  'A' INTERFACE EXTERNA: {dns_count[EXTERNA][TOTAL_REQ]}", file=fout)
+    print(f"QTD DE RESPONSE 'A' INTERFACE EXTERNA: {dns_count[EXTERNA][TOTAL_RESP]}\n\n", file=fout)
 
     percent = (dns_count[INTERNA][TOTAL_PAIRS]/dns_count[INTERNA][TOTAL_REQ]) * 100
-    print(f"QTD DE PARES(REQUEST INTERFACE INTERNA, RESPONSE QUALQUER): {dns_count[INTERNA][TOTAL_PAIRS]} ({percent:.2f}%)", file=fout)
+    print(f"QTD DE PARES(REQUEST 'A' INTERFACE INTERNA, RESPONSE QUALQUER): {dns_count[INTERNA][TOTAL_PAIRS]} ({percent:.2f}%)", file=fout)
     percent = (dns_count[INTERNA][PAIRS_RESP_INTERNA]/dns_count[INTERNA][TOTAL_PAIRS]) * 100
-    print(f"\tQTD DE PARES(REQUEST INTERFACE INTERNA, RESPONSE INTERFACE INTERNA): {dns_count[INTERNA][PAIRS_RESP_INTERNA]} ({percent:.2f}%)", file=fout)
+    print(f"\tQTD DE PARES(REQUEST 'A' INTERFACE INTERNA, RESPONSE INTERFACE INTERNA): {dns_count[INTERNA][PAIRS_RESP_INTERNA]} ({percent:.2f}%)", file=fout)
     percent = (dns_count[INTERNA][PAIRS_RESP_EXTERNA]/dns_count[INTERNA][TOTAL_PAIRS]) * 100
-    print(f"\tQTD DE PARES(REQUEST INTERFACE INTERNA, RESPONSE INTERFACE EXTERNA): {dns_count[INTERNA][PAIRS_RESP_EXTERNA]} ({percent:.2f}%)", file=fout)
+    print(f"\tQTD DE PARES(REQUEST 'A' INTERFACE INTERNA, RESPONSE INTERFACE EXTERNA): {dns_count[INTERNA][PAIRS_RESP_EXTERNA]} ({percent:.2f}%)", file=fout)
     
-    percent = (dns_count[INTERNA][WITHOUT_PAIR]/dns_count[INTERNA][TOTAL_REQ]) * 100
-    print(f"QTD DE REQUEST INTERFACE INTERNA SEM RESPOSTA QUALQUER: {dns_count[INTERNA][WITHOUT_PAIR]} ({percent:.2f}%)", file=fout)
+    percent = (dns_count[INTERNA][REQ_WITHOUT_PAIR]/dns_count[INTERNA][TOTAL_REQ]) * 100
+    print(f"QTD DE REQUEST 'A' INTERFACE INTERNA SEM RESPOSTA QUALQUER: {dns_count[INTERNA][REQ_WITHOUT_PAIR]} ({percent:.2f}%)", file=fout)
     
     percent = (dns_count[INTERNA][REQ_EOF]/dns_count[INTERNA][TOTAL_REQ]) * 100
-    print(f"QTD DE REQUEST INTERFACE INTERNA NO FIM DO ARQUIVO: {dns_count[INTERNA][REQ_EOF]} ({percent:.2f}%)\n", file=fout)
+    print(f"QTD DE REQUEST 'A' INTERFACE INTERNA NO FIM DO ARQUIVO: {dns_count[INTERNA][REQ_EOF]} ({percent:.2f}%)", file=fout)
 
-
-    #print("\n\nEXTERNA", file=fout)
+    print(file=fout)
 
     percent = (dns_count[EXTERNA][TOTAL_PAIRS]/dns_count[EXTERNA][TOTAL_REQ]) * 100
-    print(f"QTD DE PARES(REQUEST INTERFACE EXTERNA, RESPONSE QUALQUER): {dns_count[EXTERNA][TOTAL_PAIRS]} ({percent:.2f}%)", file=fout)
+    print(f"QTD DE PARES(REQUEST 'A' INTERFACE EXTERNA, RESPONSE QUALQUER): {dns_count[EXTERNA][TOTAL_PAIRS]} ({percent:.2f}%)", file=fout)
     percent = (dns_count[EXTERNA][PAIRS_RESP_INTERNA]/dns_count[EXTERNA][TOTAL_PAIRS]) * 100
-    print(f"\tQTD DE PARES(REQUEST INTERFACE EXTERNA, RESPONSE INTERFACE INTERNA): {dns_count[EXTERNA][PAIRS_RESP_INTERNA]} ({percent:.2f}%)", file=fout)
+    print(f"\tQTD DE PARES(REQUEST 'A' INTERFACE EXTERNA, RESPONSE INTERFACE INTERNA): {dns_count[EXTERNA][PAIRS_RESP_INTERNA]} ({percent:.2f}%)", file=fout)
     percent = (dns_count[EXTERNA][PAIRS_RESP_EXTERNA]/dns_count[EXTERNA][TOTAL_PAIRS]) * 100
-    print(f"\tQTD DE PARES(REQUEST INTERFACE EXTERNA, RESPONSE INTERFACE EXTERNA): {dns_count[EXTERNA][PAIRS_RESP_EXTERNA]} ({percent:.2f}%)", file=fout)
+    print(f"\tQTD DE PARES(REQUEST 'A' INTERFACE EXTERNA, RESPONSE INTERFACE EXTERNA): {dns_count[EXTERNA][PAIRS_RESP_EXTERNA]} ({percent:.2f}%)", file=fout)
     
-    percent = (dns_count[EXTERNA][WITHOUT_PAIR]/dns_count[EXTERNA][TOTAL_REQ]) * 100
-    print(f"QTD DE REQUEST INTERFACE EXTERNA SEM RESPOSTA QUALQUER: {dns_count[EXTERNA][WITHOUT_PAIR]} ({percent:.2f}%)", file=fout)
+    percent = (dns_count[EXTERNA][REQ_WITHOUT_PAIR]/dns_count[EXTERNA][TOTAL_REQ]) * 100
+    print(f"QTD DE REQUEST 'A' INTERFACE EXTERNA SEM RESPOSTA QUALQUER: {dns_count[EXTERNA][REQ_WITHOUT_PAIR]} ({percent:.2f}%)", file=fout)
     
     percent = (dns_count[EXTERNA][REQ_EOF]/dns_count[EXTERNA][TOTAL_REQ]) * 100
-    print(f"QTD DE REQUEST INTERFACE EXTERNA NO FIM DO ARQUIVO: {dns_count[EXTERNA][REQ_EOF]} ({percent:.2f}%)", file=fout)
+    print(f"QTD DE REQUEST 'A' INTERFACE EXTERNA NO FIM DO ARQUIVO: {dns_count[EXTERNA][REQ_EOF]} ({percent:.2f}%)", file=fout)
+
+    print("\n", file=fout)
+
+    percent = (dns_count[INTERNA][RESP_WITHOUT_PAIR]/dns_count[INTERNA][TOTAL_RESP]) * 100
+    print(f"QTD DE RESPONSE 'A' INTERFACE INTERNA SEM REQUEST QUALQUER: {dns_count[INTERNA][RESP_WITHOUT_PAIR]} ({percent:.2f}%)", file=fout)
+    percent = (dns_count[EXTERNA][RESP_WITHOUT_PAIR]/dns_count[EXTERNA][TOTAL_RESP]) * 100
+    print(f"QTD DE RESPONSE 'A' INTERFACE EXTERNA SEM REQUEST QUALQUER: {dns_count[EXTERNA][RESP_WITHOUT_PAIR]} ({percent:.2f}%)", file=fout)
+    percent = ((dns_count[INTERNA][RESP_WITHOUT_PAIR] + dns_count[EXTERNA][RESP_WITHOUT_PAIR])/(dns_count[INTERNA][TOTAL_RESP] + dns_count[EXTERNA][TOTAL_RESP])) * 100
+    print(f"QTD DE RESPONSE 'A' QUALQUER SEM REQUEST QUALQUER: {dns_count[INTERNA][RESP_WITHOUT_PAIR] + dns_count[EXTERNA][RESP_WITHOUT_PAIR]} ({percent:.2f}%)", file=fout)
