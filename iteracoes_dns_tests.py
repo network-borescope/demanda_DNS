@@ -114,141 +114,187 @@ class IteracoesDnsTest(unittest.TestCase):
 
     def test_response_parser_0(self):
         data = ["0" for x in range(17)]
+        cnames = set()
 
         line = "172.17.61.159.53 > 10.31.0.88.61259: [udp sum ok] 60436 q: A? e7808.dscg.akamaiedge.net. 1/0/1 e7808.dscg.akamaiedge.net. [20s] A 104.104.131.24 ar: . OPT UDPsize=4000 DO (70)"
         items = line.split(" ")
 
-        expected = ["0","0","0","0","0","0","0","0","0","e7808.dscg.akamaiedge.net","0","0","0","0","0","60436", 11]
+        expected_data = ["0","0","0","0","0","0","0","0","0","e7808.dscg.akamaiedge.net","0","0","0","0","0","60436", 11]
+        expected_cnames = set()
 
-        iteracoes_dns_mod.response_parser(items, data)
+        iteracoes_dns_mod.response_parser(items, data, cnames)
 
-        self.assertEqual(data, expected)
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
 
 
     def test_response_parser_1(self):
         data = ["0" for x in range(17)]
+        cnames = set()
 
         line = "200.192.232.14.53 > 66.249.64.41.57394: [udp sum ok] 59321*- q: A? pornobom.com.br. 1/0/0 pornobom.com.br. [1h] A 104.238.138.197 (49)"
         items = line.split(" ")
 
-        expected = ["0","0","0","0","0","0","0","0","0","pornobom.com.br","0","0","0","0","0","59321", 11]
+        expected_data = ["0","0","0","0","0","0","0","0","0","pornobom.com.br","0","0","0","0","0","59321", 11]
+        expected_cnames = set()
 
-        iteracoes_dns_mod.response_parser(items, data)
+        iteracoes_dns_mod.response_parser(items, data, cnames)
 
-        self.assertEqual(data, expected)
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
 
 
     # resposta com CNAME
 
     def test_response_parser_2(self):
         data = ["0" for x in range(17)]
+        cnames = set()
 
         line = "200.192.232.14.53 > 152.255.15.248.60562: [udp sum ok] 29985*- q: A? www.pornozinhoosgrate.com.br. 1/0/1 www.pornozinhoosgrate.com.br. [1h] CNAME ghs.google.com. ar: . OPT UDPsize=1232 (85)"
         items = line.split(" ")
 
-        expected = []
+        expected_data = []
+        expected_cnames = {"ghs.google.com"}
 
-        iteracoes_dns_mod.response_parser(items, data)
+        iteracoes_dns_mod.response_parser(items, data, cnames)
 
-        self.assertEqual(data, expected)
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
 
 
     def test_response_parser_3(self):
         data = ["0" for x in range(17)]
+        cnames = set()
 
         line = "1.1.1.1.53 > 200.130.19.88.21703: [udp sum ok] 48263 q: A? id.elsevier.com. 7/0/0 id.elsevier.com. [59m14s] CNAME id.elsevier-ae.com., id.elsevier-ae.com. [14s] CNAME id.elsevier-ae.com.cdn.cloudflare.net., id.elsevier-ae.com.cdn.cloudflare.net. [4m14s] A 104.18.235.170, id.elsevier-ae.com.cdn.cloudflare.net. [4m14s] A 104.18.232.170, id.elsevier-ae.com.cdn.cloudflare.net. [4m14s] A 104.18.234.170, id.elsevier-ae.com.cdn.cloudflare.net. [4m14s] A 104.18.233.170, id.elsevier-ae.com.cdn.cloudflare.net. [4m14s] A 104.18.231.170 (193)"
         items = line.split(" ")
 
-        expected = []
+        expected_data = []
+        expected_cnames = {"id.elsevier-ae.com", "id.elsevier-ae.com.cdn.cloudflare.net"}
 
-        iteracoes_dns_mod.response_parser(items, data)
+        iteracoes_dns_mod.response_parser(items, data, cnames)
 
-        self.assertEqual(data, expected)
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
+    
+
+    def test_response_parser_4(self):
+        data = ["0" for x in range(17)]
+        cnames = set()
+
+        line = "200.130.11.91.53 > 40.85.80.229.52338: [udp sum ok] 4316*- q: A? www.arca.fiocruz.br. 3/4/4 www.arca.fiocruz.br. [1h] CNAME web.icict.fiocruz.br., web.icict.fiocruz.br. [5m] CNAME nxctic072.icict.fiocruz.br., nxctic072.icict.fiocruz.br. [5m] A 157.86.16.72 ns: icict.fiocruz.br. [5m] NS ns2.icict.fiocruz.br., icict.fiocruz.br. [5m] NS ns4.icict.fiocruz.br., icict.fiocruz.br. [5m] NS ns1.icict.fiocruz.br., icict.fiocruz.br. [5m] NS ns3.icict.fiocruz.br. ar: ns1.icict.fiocruz.br. [5m] A 157.86.16.1, ns2.icict.fiocruz.br. [5m] A 157.86.152.1, ns3.icict.fiocruz.br. [5m] A 157.86.18.10, ns4.icict.fiocruz.br. [5m] A 200.130.11.91 (237)"
+        items = line.split(" ")
+
+        expected_data = []
+        expected_cnames = {"web.icict.fiocruz.br", "nxctic072.icict.fiocruz.br"}
+
+        iteracoes_dns_mod.response_parser(items, data, cnames)
+
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
 
 
     # resposta nao eh tipo A?
 
-    def test_response_parser_4(self):
+    def test_response_parser_5(self):
         data = ["0" for x in range(17)]
+        cnames = set()
 
         line = "200.192.233.10.53 > 177.74.136.243.5931: [udp sum ok] 27561- q: NS? pornogratis.vlog.br. 0/4/1 ns: pornogratis.vlog.br. [1h] NS heather.ns.cloudflare.com., pornogratis.vlog.br. [1h] NS josh.ns.cloudflare.com., pornogratis.vlog.br. [15m] NSEC, pornogratis.vlog.br. [15m] RRSIG ar: . OPT UDPsize=1232 DO (250)"
         items = line.split(" ")
 
-        expected = []
+        expected_data = []
+        expected_cnames = set()
 
-        iteracoes_dns_mod.response_parser(items, data)
+        iteracoes_dns_mod.response_parser(items, data, cnames)
         
-        self.assertEqual(data, expected)
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
 
 
     # Testes 0 respostas
 
-    def test_response_parser_5(self):
+    def test_response_parser_6(self):
         data = ["0" for x in range(17)]
+        cnames = set()
 
         line = "200.192.233.10.53 > 170.245.92.44.56419: [udp sum ok] 27637- q: A? gocache.com.br. 0/6/3 ns: gocache.com.br. [1h] NS deck.ns.gocache.com.br., gocache.com.br. [1h] NS jet.ns.gocache.com.br., jo3n607b2fdr7ddp7a60r4l79v44qi03.com.br. [15m] Type50, jo3n607b2fdr7ddp7a60r4l79v44qi03.com.br. [15m] RRSIG, psmr5dmsutr298to01htp1pi0ast0rkl.com.br. [15m] Type50, psmr5dmsutr298to01htp1pi0ast0rkl.com.br. [15m] RRSIG ar: deck.ns.gocache.com.br. [1h] A 170.82.172.2, jet.ns.gocache.com.br. [1h] A 35.247.207.5, . OPT UDPsize=1232 DO (498)"
         items = line.split(" ")
 
-        expected = []
+        expected_data = []
+        expected_cnames = set()
 
-        iteracoes_dns_mod.response_parser(items, data)
+        iteracoes_dns_mod.response_parser(items, data, cnames)
         
-        self.assertEqual(data, expected)
-
-
-    def test_response_parser_6(self):
-        data = ["0" for x in range(17)]
-
-        line = "200.192.233.10.53 > 177.126.159.254.45830: [udp sum ok] 33031- q: A? www.redtube.com.br. 0/8/1 ns: redtube.com.br. [1h] NS sdns3.ultradns.com., redtube.com.br. [1h] NS sdns3.ultradns.org., redtube.com.br. [1h] NS sdns3.ultradns.biz., redtube.com.br. [1h] NS sdns3.ultradns.net., jo3n607b2fdr7ddp7a60r4l79v44qi03.com.br. [15m] Type50, jo3n607b2fdr7ddp7a60r4l79v44qi03.com.br. [15m] RRSIG, rdfrc3c30u859q7p2udjakd92e1p0tsa.com.br. [15m] Type50, rdfrc3c30u859q7p2udjakd92e1p0tsa.com.br. [15m] RRSIG ar: . OPT UDPsize=1232 DO (558)"
-        items = line.split(" ")
-
-        expected = []
-
-        iteracoes_dns_mod.response_parser(items, data)
-        
-        self.assertEqual(data, expected)
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
 
 
     def test_response_parser_7(self):
         data = ["0" for x in range(17)]
+        cnames = set()
+
+        line = "200.192.233.10.53 > 177.126.159.254.45830: [udp sum ok] 33031- q: A? www.redtube.com.br. 0/8/1 ns: redtube.com.br. [1h] NS sdns3.ultradns.com., redtube.com.br. [1h] NS sdns3.ultradns.org., redtube.com.br. [1h] NS sdns3.ultradns.biz., redtube.com.br. [1h] NS sdns3.ultradns.net., jo3n607b2fdr7ddp7a60r4l79v44qi03.com.br. [15m] Type50, jo3n607b2fdr7ddp7a60r4l79v44qi03.com.br. [15m] RRSIG, rdfrc3c30u859q7p2udjakd92e1p0tsa.com.br. [15m] Type50, rdfrc3c30u859q7p2udjakd92e1p0tsa.com.br. [15m] RRSIG ar: . OPT UDPsize=1232 DO (558)"
+        items = line.split(" ")
+
+        expected_data = []
+        expected_cnames = set()
+
+        iteracoes_dns_mod.response_parser(items, data, cnames)
+        
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
+
+
+    def test_response_parser_8(self):
+        data = ["0" for x in range(17)]
+        cnames = set()
 
         line = "200.192.233.10.53 > 177.155.208.38.6545: [udp sum ok] 35097- q: A? pornocaseiro.vlog.br. 0/2/1 ns: pornocaseiro.vlog.br. [1h] NS chan.ns.cloudflare.com., pornocaseiro.vlog.br. [1h] NS clyde.ns.cloudflare.com. ar: . OPT UDPsize=1232 (105)"
         items = line.split(" ")
 
-        expected = []
+        expected_data = []
+        expected_cnames = set()
 
-        iteracoes_dns_mod.response_parser(items, data)
+        iteracoes_dns_mod.response_parser(items, data, cnames)
         
-        self.assertEqual(data, expected)
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
 
 
     # Com error(Refused, NXDomain)
 
-    def test_response_parser_8(self):
+    def test_response_parser_9(self):
         data = ["0" for x in range(17)]
+        cnames = set()
 
         line = "200.130.5.250.53 > 189.6.0.174.14463: [udp sum ok] 11099 NXDomain*-| q: A? pornhub.fnde.gov.br. 0/4/1 ns: fnde.gov.br. [2h] SOA parana01.fnde.gov.br. cgeti_csup.fnde.gov.br. 2021032002 43200 7200 1209600 72000, fnde.gov.br. [2h] RRSIG, fnde.gov.br. [20h] NSEC, fnde.gov.br. [20h] RRSIG ar: . OPT UDPsize=4096 DO (499)"
         items = line.split(" ")
 
-        expected = []
+        expected_data = []
+        expected_cnames = set()
 
-        iteracoes_dns_mod.response_parser(items, data)
+        iteracoes_dns_mod.response_parser(items, data, cnames)
         
-        self.assertEqual(data, expected)
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
 
 
     # No Checksum
-    def test_response_parser_9(self):
+    def test_response_parser_10(self):
         data = ["0" for x in range(17)]
+        cnames = set()
 
         line = "186.250.92.126.53 > 200.130.5.3.13583: [no cksum] 6306*- q: A? mx1.antispam.fecam.sc.gov.br. 1/3/3 mx1.antispam.fecam.sc.gov.br. [12m] A 69.55.49.140 ns: fecam.sc.gov.br. [12m] NS ns3.fecamsc.org.br., fecam.sc.gov.br. [12m] NS ns1.fecamsc.org.br., fecam.sc.gov.br. [12m] NS ns2.fecamsc.org.br. ar: ns1.fecamsc.org.br. [1h] A 186.250.92.126, ns2.fecamsc.org.br. [1h] A 54.39.107.183, ns3.fecamsc.org.br. [1h] A 54.39.107.183 (176)"
         items = line.split(" ")
 
-        expected = []
+        expected_data = []
+        expected_cnames = set()
 
-        iteracoes_dns_mod.response_parser(items, data)
+        iteracoes_dns_mod.response_parser(items, data, cnames)
         
-        self.assertEqual(data, expected)
+        self.assertEqual(data, expected_data)
+        self.assertEqual(cnames, expected_cnames)
 
 
     #######################################
