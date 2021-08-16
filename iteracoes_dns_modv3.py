@@ -32,16 +32,14 @@ RESPONSE_ERROR = 4
 RESPONSE_CLIENT = 5
 DNS_REQUEST_DIST_TTL = 6
 DNS_RESPONSE_DIST_TTL = 7
-REQ_INTERFACE = 8
-RESP_INTERFACE = 9
+DNS_DIGEST = 8
+DNS_FLAGS = 9
 
 # web data positions
 WEB_REQ = 0
 WEB_REQ_CLIENT = 1
 WEB_DIST_TTL = 2
-WEB_REQ_INTERFACE = 3
-WEB_REQ_DELAY = 4
-WEB_DELAY_SAME_CLIENT = 5
+WEB_NEW_FORMAT = 3
 
 def hour_to_timedelta(d_hora):
     hour, min, sec = d_hora.split(":")
@@ -120,6 +118,7 @@ def response_parser(items, data, cnames):
                 return True
 
             data.clear()
+            #if items[i] == "CNAME": return "CNAME"
             if items[i] == "CNAME":
                 while i < n:
                     # name validade CNAME name
@@ -188,25 +187,23 @@ def get_response_ips(items, know_ips, data):
 
         i += 1
 
-def init_dns_data(request, duplicated_request, client_name, dns_request_dist_ttl):
+
+def init_dns_data(data, is_open_dns, query_id, client_id):
     dns = [None for x in range(10)]
 
-    dns[REQUEST] = request
-    dns[DUPLICATED_REQUEST] = duplicated_request
-    dns[REQUEST_CLIENT] = client_name
-    dns[DNS_REQUEST_DIST_TTL] = dns_request_dist_ttl
+    dns[REQUEST] = True
+    dns[DNS_FLAGS] = ["0" for x in range(6)]
+
+    if ('+' in query_id): dns[DNS_FLAGS][0] = "1"
+    if ('%' in query_id): dns[DNS_FLAGS][1] = "1"
+
+    ip_dst = "0"
+    if is_open_dns: ip_dst = data[D_DIP]
+
+    hour = data[D_HORA].split(":")[0]
+    dns[DNS_DIGEST] = f"{data[D_DATA]},{date_to_day(data[D_DATA])},{hour},{client_id},{data[D_SIP]},{data[D_DIST]},{data[D_TTL]},{ip_dst},{data[D_IP_ID]}"
 
     return dns
-
-def init_web_data(request, duplicated_request, client_name, dns_request_dist_ttl):
-    web = [None for x in range(6)]
-
-    web[REQUEST] = request
-    web[DUPLICATED_REQUEST] = duplicated_request
-    web[REQUEST_CLIENT] = client_name
-    web[DNS_REQUEST_DIST_TTL] = dns_request_dist_ttl
-
-    return web
 
 def get_response_ips0(items, know_ips, query):
     
@@ -234,9 +231,6 @@ def get_response_ips0(items, know_ips, query):
         if query_response_ip[len(query_response_ip)-1] == ",":
             query_response_ip = query_response_ip[:-1] # remove a virgula
         
-        #if mascara not in know_ips:
-            #know_ips[mascara] = {}
-        #know_ips[mascara][query_response_ip] = query
         know_ips[query_response_ip] = query
 
         items = items[pos+1:]
@@ -254,17 +248,27 @@ def get_interface(items):
     interface = f"{items[5]} {items[6]} {items[7]}"
     return interface
 
+def get_client_name_and_id(ip):
+    result = site_from_ip(ip)
+    client_name = result[0]
+    client_id = result[6]
+
+    return client_name, client_id
+
+def date_to_day(d_data):
+    year, month, day = d_data.split("-")
+    day = datetime.datetime(year=int(year), month=int(month), day=int(day)).weekday()
+
+    #day_of_week = {0: "Segunda", 1: "Terca", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sabado", 6: "Domingo"}
+
+    return str((day+1 % 7)+1)
+
 def main():
     duplicated = None
     arguments = argv[1:]
 
     if len(arguments) == 2:
         filename, output_n = arguments
-    elif len(arguments) == 3:
-        if arguments[1] == "-d":
-            filename, duplicated, output_n = arguments
-        else:
-            exit(1)
     else:
         exit(1)
 
@@ -272,9 +276,6 @@ def main():
     with open("open_dns_list.txt", "r") as f:
         for line in f:
             line = line.strip()
-            #name, ip1, ip2 = line.split("|")
-            #open_dns[ip1] = name
-            #open_dns[ip2] = name
 
             items = line.split("|")
             name = items[0]
@@ -282,10 +283,7 @@ def main():
             for ip in items[1:]:
                 open_dns[ip] = name
 
-
-    INTERNA = 0
-    EXTERNA = 1
-    interfaces = { "cc4e 2442 550c": EXTERNA, "cc4e 2442 550d": INTERNA }
+    services = {"53": "DNS", "80": "HTTP", "443": "HTTP", "25": "SMTP", "587": "SMTP", "465": "SMTP", "110": "POP3", "995": "POP3", "143": "IMAP", "20": "FTP", "21": "FTP", "22": "SSH"}
 
     dns_a_count = 0
     dns_a_cname_count = 0
@@ -301,14 +299,7 @@ def main():
     TOTAL_PAIRS_WITH_ERROR = 1
     TOTAL_PAIRS_DUPLICATED = 2
 
-    ### Estatistica Burst ###
-    QUERY_SEQUENCE = 3
-    QUERY_NON_SEQUENCE = 4
-    QUERY_ERROR_PAIRS = 5 # Refused, NXDomain
-
-    ip_dns_req_web = set() # conjunto de ips que fazem req DNS e acesso Web
     ip_dns_req = set() # lista de ips que fazem req DNS
-    ip_web = set() # lista de ips que fazem acesso web
 
     fin = open(filename, "r")
 
@@ -400,50 +391,42 @@ def main():
                     if proto_port == "17:53": # se for dns request
                         if not request_parser(items, data): continue
 
-                        #mascara = f"{ip_src_a[0]}.{ip_src_a[1]}.0.0/16"
-                        mascara = f"{ip_src_a[0]}.0.0.0/8"
+                        ip_dns_req.add(data[D_SIP])
+                        client_name, client_id = get_client_name_and_id(data[D_SIP])
 
-                        key = f"{data[D_QUERY]}"
+                        key = f"{client_name} {data[D_QUERY]}"
                         key2 = f"{data[D_SIP]} {data[D_SPORT]} {data[D_DIP]} {data[D_QUERY_ID]}"
 
-                        # { f"{query}": {
+                        # { f"{client_id} {data[D_QUERY]}": {
                         #   "dst": conj dst perguntas,
-                        #   f"{ip_src} {ip_dst} {query_id}": [dns_req, dns_resp],
-                        #   "web": {f"{ip_src} {ip_dst} {port_dst}": web_access},
-                        #   "last_dns_response_time": hour_to_timedelta(data[D_HORA]),
-                        #   "dns_response_time_per_client": {client_name: response_timedelta}
+                        #   f"{data[D_SIP]} {data[D_SPORT]} {data[D_DIP]} {data[D_QUERY_ID]}": [dns_req, dns_resp],
+                        #   "web": { f"{ip_src} {ip_dst} {port_dst}": web_access},
+                        #   "last_dns_response_time": hour_to_timedelta(data[D_HORA])
                         # }
 
-                        ip_dns_req.add(data[D_SIP])
-                        client_name = site_from_ip(data[D_SIP])[0]
 
                         if key not in dns_match:
-                            cname = key in cnames
+                            cname = data[D_QUERY] in cnames
                             dns_match[key] = {
                                 "cname": cname,
                                 "dst": set(),
                                 "src": set(),
                                 "web": {},
                                 "last_dns_response_time": None,
-                                "dns_response_time_per_client": {client_name: None}, # usado para calcular o delay do acesso web daquele cliente
-                                key2: init_dns_data(f"{data[D_HORA]} {line.strip()}", False, client_name, f"{data[D_DIST]}({data[D_TTL]})") }
-                            # [f"{data[D_HORA]} {line.strip()}", False, client_name, None, False, None, f"{data[D_DIST]}({data[D_TTL]})", None, None, None]
+                                key2: init_dns_data(data, data[D_DIP] in open_dns, items[6], client_id) }
+                            
+
                             dns_match[key]["src"].add(data[D_SIP])
                             dns_match[key]["dst"].add(data[D_DIP])
                         
-                        # query repetida
+                        # cliente e query repetidos
                         elif len(dns_match[key]["web"]) == 0:
-                            # mesma query sendo feita para outro servidor dns
+                            # mesma query sendo feita pelo mesmo cliente para outro servidor dns
                             if key2 not in dns_match[key] and data[D_DIP] not in dns_match[key]["dst"]:
 
-                                dns_match[key][key2] = init_dns_data(f"{data[D_HORA]} {line.strip()}", False, client_name, f"{data[D_DIST]}({data[D_TTL]})")
+                                dns_match[key][key2] = init_dns_data(data, data[D_DIP] in open_dns, items[6], client_id)
                                 dns_match[key]["src"].add(data[D_SIP])
                                 dns_match[key]["dst"].add(data[D_DIP])
-
-                            # mesma query sendo feita a um servidor DNS repetido
-                            elif data[D_DIP] in dns_match[key]["dst"] and duplicated:
-
-                                dns_match[key][key2] = init_dns_data(f"{data[D_HORA]} {line.strip()}", True, client_name, f"{data[D_DIST]}({data[D_TTL]})")
 
                     elif (data[D_PROTO] + ":" + data[D_SPORT]) == "17:53": # dns response
                         if response_parser(items, data, cnames) == "CNAME":
@@ -453,7 +436,9 @@ def main():
                         elif len(data) > 0:
                             dns_a_count += 1
 
-                            key = f"{data[D_QUERY]}"
+                            client_name, client_id = get_client_name_and_id(data[D_DIP])
+
+                            key = f"{client_name} {data[D_QUERY]}"
                             key2 = f"{data[D_DIP]} {data[D_DPORT]} {data[D_SIP]} {data[D_QUERY_ID]}"
 
                             if key in dns_match:
@@ -463,16 +448,17 @@ def main():
                                 if key2 in dns_match[key]:
                                     if dns_match[key][key2][RESPONSE] == None:
 
-                                        if data[D_SIP] in open_dns: client_name = f"{open_dns[data[D_SIP]]} (OPEN DNS)"
-                                        else: client_name = site_from_ip(data[D_SIP])[0]
-
-                                        dns_match[key][key2][RESPONSE] = f"{data[D_HORA]} {line.strip()}"
-                                        dns_match[key][key2][RESPONSE_CLIENT] = client_name
+                                        dns_match[key][key2][RESPONSE] = True
                                         dns_match[key][key2][DNS_RESPONSE_DIST_TTL] = f"{data[D_DIST]}({data[D_TTL]})"
+
+                                        if '*' in items[6]: dns_match[key][key2][DNS_FLAGS][2] = "1"
+                                        if '-' in items[6]: dns_match[key][key2][DNS_FLAGS][3] = "1"
+                                        if '|' in items[6]: dns_match[key][key2][DNS_FLAGS][4] = "1"
+                                        if '$' in items[6]: dns_match[key][key2][DNS_FLAGS][5] = "1"
+
+                                        #if items[6]: dns_match[key][key2]
                                         
                                         response_timedelta = hour_to_timedelta(data[D_HORA])
-                                        req_client_name = dns_match[key][key2][REQUEST_CLIENT]
-                                        dns_match[key]["dns_response_time_per_client"][req_client_name] = response_timedelta
 
                                         dns_statistic[TOTAL_PAIRS] += 1 # total de pares pergunta e resposta
 
@@ -481,23 +467,13 @@ def main():
                                                 dns_match[key][key2][RESPONSE_ERROR] = True
 
                                                 dns_statistic[TOTAL_PAIRS_WITH_ERROR] += 1 # total de pares pergunta e resposta com erro
-
-                                        if dns_match[key][key2][DUPLICATED_REQUEST]: # eh duplicado
-
-                                            dns_statistic[TOTAL_PAIRS_DUPLICATED] += 1 # total de pares pergunta e resposta que sao duplicados
-                                            
-                                            if duplicated != None:
-                                                dns_match[key]["last_dns_response_time"] = response_timedelta
-
-                                                get_response_ips(items, know_ips, data)
-                                        else:
-                                            dns_match[key]["last_dns_response_time"] = response_timedelta
-
-                                            get_response_ips(items, know_ips, data)
+                                        
+                                        dns_match[key]["last_dns_response_time"] = response_timedelta
+                                        get_response_ips(items, know_ips, data)
 
                     elif proto_port == "6:80" or proto_port == "6:443": # http ou https
                         query = None
-
+                        
                         if data[D_DIP] in know_ips:
                             query = know_ips[data[D_DIP]]
                             data[D_QUERY] = query
@@ -505,33 +481,22 @@ def main():
                             data = []
                             continue
 
-                        key = f"{data[D_QUERY]}"
+                        client_name, client_id = get_client_name_and_id(data[D_SIP])
+
+                        key = f"{client_name} {data[D_QUERY]}"
                         web_key = f"{data[D_SIP]} {data[D_DIP]} {data[D_DPORT]}"
 
                         if key in dns_match:
-                            client_name = site_from_ip(data[D_SIP])[0]
+
                             web_access_time = hour_to_timedelta(data[D_HORA])
+                            if dns_match[key]["last_dns_response_time"] is None: continue
                             delta_time = web_access_time - dns_match[key]["last_dns_response_time"]
-                            delay = None
-                            delay_same_client = None
 
-                            line = line.strip()
-                            pos = line.find(":") + 1
+                            service = data[D_DPORT]
+                            if data[D_DPORT] in services: service = services[data[D_DPORT]]
 
-                            formated_line = f"{line[:pos]} Delta {delta_time} {line[pos:]}"
-
-                            # calcula delay
-                            if client_name in dns_match[key]["dns_response_time_per_client"] and dns_match[key]["dns_response_time_per_client"][client_name]:
-                                response_timedelta = dns_match[key]["dns_response_time_per_client"][client_name]
-                                delay = web_access_time - response_timedelta
-
-                                delay_same_client = True
-                            else:
-                                delay = delta_time
-                            
-                            timedelta_sec = datetime.timedelta(seconds=0.1)
-                            if delay < timedelta_sec: delay = "0"
-                            else: delay = delay.total_seconds()
+                            # data, dia_semana, hora, id_cliente, ..., dist, ttl, ..., ip_src, dist, ttl, port_dst, servico, ip_dst, query, delta
+                            web_info = f"{data[D_SIP]},{data[D_DIST]},{data[D_TTL]},{data[D_DPORT]},{service},{data[D_DIP]},{query},{delta_time}"
 
                             if len(dns_match[key]["web"]) == 0:
                                 # antes de aceitar verifica se ha uma resposta
@@ -545,55 +510,33 @@ def main():
                                             break
                                 
                                 if accept_web:
-                                    # WEB_REQ = 0 WEB_REQ_CLIENT = 1 WEB_DIST_TTL = 2 WEB_REQ_INTERFACE = 3 WEB_REQ_DELAY = 4
-                                    dns_match[key]["web"] = { web_key: [f"{formated_line}", client_name, f"{data[D_DIST]}({data[D_TTL]})", None, delay, delay_same_client] }
+                                    # WEB_REQ = 0 WEB_REQ_CLIENT = 1 WEB_DIST_TTL = 2 WEB_NEW_FORMAT = 3
+                                    dns_match[key]["web"] = { web_key: web_info }
                                     
                             
                             elif web_key not in dns_match[key]["web"]:
-                                dns_match[key]["web"][web_key] = [f"{formated_line}", client_name, f"{data[D_DIST]}({data[D_TTL]})", None, delay, delay_same_client]
+                                dns_match[key]["web"][web_key] = web_info
 
-        elif altura == 2 and len(data) > 0:
-            items = line.strip().split(" ")
-            interface = get_interface(items)
-
-            if interface in interfaces:
-                key1 = data[D_QUERY]
-                
-                if f"{data[D_PROTO]}:{data[D_DPORT]}" == "17:53": # request
-                    key2 = f"{data[D_SIP]} {data[D_SPORT]} {data[D_DIP]} {data[D_QUERY_ID]}"
-
-                    if key1 in dns_match and key2 in dns_match[key1]:
-                        dns_match[key1][key2][REQ_INTERFACE] = interfaces[interface]
-                    else:
-                        #print("key error:", f"Query: {key} key2: {key2}")
-                        continue
-
-                elif f"{data[D_PROTO]}:{data[D_SPORT]}" == "17:53": # response
-                    key2 = f"{data[D_DIP]} {data[D_DPORT]} {data[D_SIP]} {data[D_QUERY_ID]}"
-
-                    if key1 in dns_match and key2 in dns_match[key1]:
-                        dns_match[key1][key2][RESP_INTERFACE] = interfaces[interface]
-
-                elif f"{data[D_PROTO]}:{data[D_DPORT]}" in ["6:80", "6:443"]:
-                    web_key = f"{data[D_SIP]} {data[D_DIP]} {data[D_DPORT]}"
-
-                    if key1 in dns_match and web_key in dns_match[key1]["web"]:
-                        dns_match[key1]["web"][web_key][WEB_REQ_INTERFACE] = interfaces[interface]
 
     fin.close()
+    #f_dns.close()
 
-    # { f"{query}": {
+    def get_ip_dst(line):
+        items = line.split(" ")
+
+        pos_port = items[3].rfind(".")
+        return items[3][:pos_port]
+
+
+    # { f"{client_id} {data[D_QUERY]}": {
     #   "dst": conj dst perguntas,
-    #   f"{ip_src} {ip_dst} {query_id}": [dns_req, dns_resp],
-    #   "web": {f"{ip_src} {ip_dst} {port_dst}": web_access},
-    #   "last_dns_response_time": hour_to_timedelta(data[D_HORA]),
-    #   "dns_response_time_per_client": {client_name: response_timedelta}
+    #   f"{data[D_SIP]} {data[D_SPORT]} {data[D_DIP]} {data[D_QUERY_ID]}": [dns_req, dns_resp],
+    #   "web": { f"{ip_src} {ip_dst} {port_dst}": web_access},
+    #   "last_dns_response_time": hour_to_timedelta(data[D_HORA])
     # }
-
-    with open(f"output{output_n}.txt", "w") as fout:
-        print("AGRUPADO POR HOST PERGUNTADO NO DNS REQUEST E ACESSADO PELO WEB", file=fout)
-        print("PARES DNS(REQUEST 'A' INTERFACE INTERNA, RESPONSE INTERFACE EXTERNA) antes do primeiro acesso web", file=fout)
-        print("Primeiros REQUESTS WEB\n\n", file=fout)
+    
+    with open(f"output{output_n}.txt", "w") as fout, open(f"pre_processed{output_n}.txt", "w") as fout2:
+        print("AGRUPADO POR Cliente e HOST PERGUNTADO NO DNS REQUEST E ACESSADO PELO WEB", file=fout)
         
         print(f"QTD RESPOSTAS DNS PARA REQUESTS 'A': {dns_a_count}", file=fout)
         print(f"QTD RESPOSTAS DNS CNAME PARA REQUESTS 'A': {dns_a_cname_count}\n\n", file=fout)
@@ -604,18 +547,9 @@ def main():
             del dns_match[key]["src"]
             del dns_match[key]["dst"]
             del dns_match[key]["last_dns_response_time"]
-            del dns_match[key]["dns_response_time_per_client"]
 
             web = dns_match[key]["web"]
             del dns_match[key]["web"]
-
-            web_to_be_removed = []
-            for k, web_access in web.items():
-                if web_access[WEB_REQ_INTERFACE] != INTERNA:
-                    web_to_be_removed.append(k)
-            
-            for k in web_to_be_removed:
-                del web[k]
 
             if len(web) > 0: # houve acesso web(REQ INTERFACE INTERNA)
                 match = []
@@ -624,24 +558,19 @@ def main():
                     dns_pair = dns_match[key][key2]
 
                     if dns_pair[RESPONSE] != None and (duplicated != None or not dns_pair[DUPLICATED_REQUEST]):
-                        if dns_pair[REQ_INTERFACE] == INTERNA and dns_pair[RESP_INTERFACE] == EXTERNA: # req interna, resp externa
-                            match.append(dns_pair)
+                        match.append(dns_pair)
                 
                 if len(match) > 0:
-                    if cname: fout.write(f"HOST: {key}(CNAME)\n")
-                    else: fout.write(f"HOST: {key}\n")
+                    if cname: fout.write(f"{key}(CNAME)\n")
+                    else: fout.write(f"{key}\n")
 
                     for dns in match:
-                        fout.write(f"\tDNS REQUEST SRC: {dns[REQUEST_CLIENT]}| REQ DISTANCIA(TTL): {dns[DNS_REQUEST_DIST_TTL]}| DNS SERVER: {dns[RESPONSE_CLIENT]}\n")
-                        fout.write(f"\t{dns[REQUEST]}\n")
-                        fout.write(f"\t{dns[RESPONSE]}\n\n")
+                        fout.write(f"\t{dns[DNS_DIGEST]},{dns[DNS_FLAGS][0]},{dns[DNS_FLAGS][1]},{dns[DNS_FLAGS][2]},{dns[DNS_FLAGS][3]},{dns[DNS_FLAGS][4]},{dns[DNS_FLAGS][5]}\n\n")
                     
+                    last_dns = match[len(match)-1]
                     for k, web_access in web.items():
-                        if web_access[WEB_DELAY_SAME_CLIENT] is None:
-                            fout.write(f"\tWEB REQUEST SRC: {web_access[WEB_REQ_CLIENT]}| DISTANCIA(TTL): {web_access[WEB_DIST_TTL]}| DELAY: \"{web_access[WEB_REQ_DELAY]}s\"\n")
-                        else:
-                            fout.write(f"\tWEB REQUEST SRC: {web_access[WEB_REQ_CLIENT]}| DISTANCIA(TTL): {web_access[WEB_DIST_TTL]}| DELAY: {web_access[WEB_REQ_DELAY]}s\n")
-                        fout.write(f"\t{web_access[WEB_REQ]}\n\n")
+                        fout.write(f"\t{last_dns[DNS_DIGEST]},{last_dns[DNS_FLAGS][0]},{last_dns[DNS_FLAGS][1]},{last_dns[DNS_FLAGS][2]},{last_dns[DNS_FLAGS][3]},{last_dns[DNS_FLAGS][4]},{last_dns[DNS_FLAGS][5]},{web_access}\n\n")
+                        fout2.write(f"{last_dns[DNS_DIGEST]},{last_dns[DNS_FLAGS][0]},{last_dns[DNS_FLAGS][1]},{last_dns[DNS_FLAGS][2]},{last_dns[DNS_FLAGS][3]},{last_dns[DNS_FLAGS][4]},{last_dns[DNS_FLAGS][5]},{web_access}\n")
                     fout.write(f"\n\n")
 
 if __name__ == '__main__':

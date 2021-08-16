@@ -1,4 +1,5 @@
-from sys import argv, exit, stdout
+from sys import argv, exit
+from ip_to_nome_lat_lon import site_from_ip
 import datetime
 
 arguments = argv[1:]
@@ -36,6 +37,9 @@ RESPONSE = 1
 REQUEST_TIME = 2
 REQ_INTERFACE = 3
 RESP_INTERFACE = 4
+REQ_DIST_TTL = 5
+REQ_CLIENT = 6
+RESP_CLIENT = 7
 
 INTERNA = 0
 EXTERNA = 1
@@ -182,8 +186,10 @@ for line in fin:
                         key = f"{data[D_SIP]} {data[D_SPORT]} {data[D_DIP]} {data[D_QUERY_ID]} {data[D_QUERY]}"
 
                         if key not in dns_match:
-                            dns_match[key] = [f"{data[D_HORA]} {line.strip()}", None, None, None, None]
+                            dns_match[key] = [f"{data[D_HORA]} {line.strip()}", None, None, None, None, None, None, None]
                             
+                            dns_match[key][REQ_CLIENT] = site_from_ip(data[D_SIP])[0]
+                            dns_match[key][REQ_DIST_TTL] = f"{data[D_DIST]}({data[D_TTL]})"
                             dns_match[key][REQUEST_TIME] = hour_to_timedelta(data[D_HORA])
                                                     
                         # query repetida
@@ -215,6 +221,11 @@ for line in fin:
                             if dns_match[key][RESPONSE] == None:
 
                                 dns_match[key][RESPONSE] = f"{data[D_HORA]} {line.strip()}"
+
+                                if data[D_SIP] in open_dns: dns_server_provider = f"{open_dns[data[D_SIP]]} (OPEN DNS)"
+                                else: dns_server_provider = site_from_ip(data[D_SIP])[0]
+
+                                dns_match[key][RESP_CLIENT] = dns_server_provider
 
                                 # pega ip's da resposta
                                 items = items[query_pos+1:]
@@ -276,7 +287,7 @@ f_resp.close()
 
 last_hour = hour_to_timedelta(data[D_HORA])
 
-
+dns_query_pair = {} # { query: { ip_src port_src ip_dst query_id :[req, resp] } }
 
 with open("req_sem_resp.txt", "w") as f:
     for key in dns_match:
@@ -296,11 +307,37 @@ with open("req_sem_resp.txt", "w") as f:
                 elif dns[RESP_INTERFACE] == EXTERNA:
                     dns_count[dns[REQ_INTERFACE]][PAIRS_RESP_EXTERNA] += 1
 
+                    if dns[REQ_INTERFACE] == INTERNA: # req interna, resp externa
+                        splited_key = key.split(" ") # key = f"{data[D_DIP]} {data[D_DPORT]} {data[D_SIP]} {data[D_QUERY_ID]} {data[D_QUERY]}"
+
+                        query = splited_key[len(splited_key)-1]
+                        key_dns_query_pair = f"{splited_key[0]} {splited_key[1]} {splited_key[2]} {splited_key[3]}"
+                        
+                        if query not in dns_query_pair:
+                            dns_query_pair[query] = { key_dns_query_pair: (dns[REQUEST], dns[REQ_DIST_TTL], dns[REQ_CLIENT], dns[RESPONSE], dns[RESP_CLIENT]) }
+                        else:
+                            dns_query_pair[query][key_dns_query_pair] = (dns[REQUEST], dns[REQ_DIST_TTL], dns[REQ_CLIENT], dns[RESPONSE], dns[RESP_CLIENT])
+
             else:
                 print(dns[REQUEST], file=f)
                 dns_count[dns[REQ_INTERFACE]][REQ_WITHOUT_PAIR] += 1
         else:
             dns_count[dns[REQ_INTERFACE]][REQ_EOF] += 1
+
+with open("pares_de_interesse.txt", "w") as f:
+    req, req_dist_ttl, req_client, resp, resp_client = [x for x in range(5)]
+    print("PARES DNS (REQUEST 'A' INTERFACE INTERNA, RESPONSE INTERFACE EXTERNA)\n\n", file=f)
+    for query in dns_query_pair:
+        print(query, file=f)
+
+        for dns_key in dns_query_pair[query]:
+            dns = dns_query_pair[query][dns_key]
+            print(f"\tDNS REQUEST SRC: {dns[req_client]}| REQ DISTANCIA(TTL): {dns[req_dist_ttl]}| DNS SERVER: {dns[resp_client]}", file=f)
+
+            print(f"\t{dns[req]}", file=f)
+            print(f"\t{dns[resp]}\n", file=f)
+        
+        print(file=f)
 
 with open("capture_check.txt", "w") as fout:
     #print("INTERNA", file=fout)
